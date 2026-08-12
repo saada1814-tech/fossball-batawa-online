@@ -1,0 +1,14 @@
+{
+  "name": "foosball-online",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Online multiplayer Foosball prototype with Socket.IO and AI fallback",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1"
+  }
+}

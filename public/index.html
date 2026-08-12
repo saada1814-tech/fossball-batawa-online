@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Foosball Online</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#153b2a,#06100c 70%);color:#fff;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center}
+.wrap{width:min(1180px,96vw);text-align:center}
+h1{margin:0 0 10px}.hud{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin-bottom:10px;border:1px solid #ffffff26;border-radius:14px;background:#ffffff0d}
+.game-box{position:relative}canvas{width:100%;aspect-ratio:16/9;display:block;background:#11834e;border:8px solid #4e2b17;border-radius:18px}
+.overlay{position:absolute;inset:8px;display:flex;align-items:center;justify-content:center;background:#030a07e8;border-radius:10px;z-index:4}
+.menu{width:min(540px,92%);padding:28px;border:1px solid #ffffff24;background:#ffffff12;border-radius:20px}
+.menu h2{font-size:34px;margin:0 0 10px}.menu p{opacity:.8}.buttons{display:grid;gap:10px;margin-top:18px}
+button,input{padding:14px;border:0;border-radius:11px;font-size:16px;font-weight:700}
+button{cursor:pointer}.primary{background:#2f81f7;color:white}.ai{background:#22c55e}.light{background:#fff;color:#111}.dark{background:#ffffff18;color:white}
+input{text-transform:uppercase;text-align:center;letter-spacing:4px;width:100%}.hidden{display:none!important}
+.status{margin-top:10px;font-weight:700}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.box{padding:10px;background:#ffffff0d;border:1px solid #ffffff1f;border-radius:12px}
+.roomcode{font-size:28px;letter-spacing:5px;font-weight:800;color:#5ee28c}
+@media(max-width:700px){.controls{grid-template-columns:1fr}.menu h2{font-size:26px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Foosball Online</h1>
+<div class="hud">
+  <div><b style="color:#58a6ff">BLUE</b> <span id="blueScore">0</span></div>
+  <div>Time: <b id="time">120</b>s</div>
+  <div><span id="redScore">0</span> <b style="color:#ff6b6b">RED</b></div>
+</div>
+
+<div class="game-box">
+<canvas id="game" width="1280" height="720"></canvas>
+
+<div class="overlay" id="overlay">
+  <div class="menu" id="mainMenu">
+    <h2>FOOSBALL</h2>
+    <p>Play locally, against AI, or connect to another player online.</p>
+    <div class="buttons">
+      <button class="primary" onclick="showModeMenu()">PLAY NOW</button>
+    </div>
+  </div>
+
+  <div class="menu hidden" id="modeMenu">
+    <h2>Choose Mode</h2>
+    <div class="buttons">
+      <button class="ai" onclick="startLocal('ai')">PLAYER 1 VS AI</button>
+      <button class="light" onclick="startLocal('pvp')">PLAYER 1 VS PLAYER 2</button>
+      <button class="primary" onclick="showOnlineMenu()">ONLINE MULTIPLAYER</button>
+      <button class="dark" onclick="showMainMenu()">BACK</button>
+    </div>
+  </div>
+
+  <div class="menu hidden" id="onlineMenu">
+    <h2>Online Multiplayer</h2>
+    <p>Create a room and share its code, or join a friend's room.</p>
+    <div class="buttons">
+      <button class="primary" onclick="createRoom()">CREATE ROOM</button>
+      <input id="roomInput" maxlength="6" placeholder="ROOM CODE">
+      <button class="light" onclick="joinRoom()">JOIN ROOM</button>
+      <button class="dark" onclick="showModeMenu()">BACK</button>
+    </div>
+    <div id="onlineError" class="status"></div>
+  </div>
+
+  <div class="menu hidden" id="waitingMenu">
+    <h2>Waiting for Player 2</h2>
+    <p>Share this room code:</p>
+    <div class="roomcode" id="roomCodeLabel">------</div>
+    <p id="waitingText">Connecting...</p>
+    <div class="buttons">
+      <button class="dark" onclick="returnMenu()">CANCEL</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="status" id="status">Press Play Now to start</div>
+<div class="controls">
+  <div class="box"><b>Blue</b><br>W / S = Move · F = Kick</div>
+  <div class="box" id="redControl"><b>Red</b><br>↑ / ↓ = Move · Enter = Kick</div>
+</div>
+<button class="dark" style="margin-top:10px" onclick="returnMenu()">MAIN MENU</button>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket=io();
+const canvas=document.getElementById("game"),ctx=canvas.getContext("2d");
+const W=1280,H=720,field={x:80,y:50,w:1120,h:620,goalH:210};
+const ball={x:W/2,y:H/2,r:14,vx:6,vy:3};
+const blue={offset:0,kick:0,rods:[{x:250,players:[-140,0,140]},{x:500,players:[-190,-65,65,190]}]};
+const red={offset:0,kick:0,rods:[{x:1030,players:[-140,0,140]},{x:780,players:[-190,-65,65,190]}]};
+let keys={},blueScore=0,redScore=0,timeLeft=120,lastTime=performance.now(),timerAcc=0;
+let mode=null,started=false,gameOver=false,myPlayer=1,roomCode="",onlineReady=false;
+let remote={up:false,down:false,kick:false};
+let networkSyncAcc=0;
+
+addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=true;if(e.key==="Enter")keys.enter=true;if(["ArrowUp","ArrowDown"].includes(e.key))e.preventDefault()});
+addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=false;if(e.key==="Enter")keys.enter=false});
+
+function hideMenus(){document.querySelectorAll(".menu").forEach(x=>x.classList.add("hidden"))}
+function show(id){hideMenus();document.getElementById(id).classList.remove("hidden")}
+function showMainMenu(){show("mainMenu")}
+function showModeMenu(){show("modeMenu")}
+function showOnlineMenu(){show("onlineMenu")}
+function updateHUD(){blueScoreEl.textContent=blueScore;redScoreEl.textContent=redScore;time.textContent=timeLeft}
+const blueScoreEl=document.getElementById("blueScore"),redScoreEl=document.getElementById("redScore");
+
+function startLocal(m){
+ mode=m;started=true;gameOver=false;onlineReady=false;myPlayer=1;resetMatch();
+ overlay.classList.add("hidden");
+ status.textContent=m==="ai"?"Mode: Player 1 vs AI":"Mode: Local 2 Player";
+ redControl.innerHTML=m==="ai"?"<b>AI — Red</b><br>Automated opponent":"<b>Red</b><br>↑ / ↓ = Move · Enter = Kick";
+}
+
+function createRoom(){
+ document.getElementById("onlineError").textContent="";
+ socket.emit("create-room",res=>{
+   if(!res?.ok)return;
+   mode="online";myPlayer=1;roomCode=res.code;onlineReady=false;
+   document.getElementById("roomCodeLabel").textContent=res.code;
+   document.getElementById("waitingText").textContent="Waiting for another player...";
+   show("waitingMenu");
+ });
+}
+
+function joinRoom(){
+ const code=document.getElementById("roomInput").value.trim().toUpperCase();
+ document.getElementById("onlineError").textContent="";
+ socket.emit("join-room",code,res=>{
+   if(!res?.ok){document.getElementById("onlineError").textContent=res?.error||"Unable to join.";return}
+   mode="online";myPlayer=2;roomCode=res.code;
+   document.getElementById("roomCodeLabel").textContent=res.code;
+   startOnlineMatch();
+ });
+}
+
+function startOnlineMatch(){
+ onlineReady=true;started=true;gameOver=false;resetMatch();
+ overlay.classList.add("hidden");
+ status.textContent=`Online Room ${roomCode} · You are Player ${myPlayer}`;
+ redControl.innerHTML=myPlayer===1
+   ?"<b>Opponent — Red</b><br>Controlled online"
+   :"<b>You — Red</b><br>↑ / ↓ = Move · Enter = Kick";
+}
+
+socket.on("match-start",()=>startOnlineMatch());
+socket.on("room-state",s=>{if(s.code===roomCode&&s.ready)document.getElementById("waitingText").textContent="Opponent connected!"});
+socket.on("opponent-input",data=>{remote={up:!!data.up,down:!!data.down,kick:!!data.kick}});
+socket.on("ball-state",s=>{
+ if(mode==="online"&&myPlayer===2){
+   Object.assign(ball,s.ball);blueScore=s.blueScore;redScore=s.redScore;timeLeft=s.timeLeft;updateHUD();
+ }
+});
+socket.on("opponent-left",()=>{
+ onlineReady=false;started=false;overlay.classList.remove("hidden");show("waitingMenu");
+ document.getElementById("waitingText").textContent="Opponent left. Waiting for another player...";
+ status.textContent="Opponent disconnected";
+});
+socket.on("became-host",()=>{myPlayer=1});
+
+function returnMenu(){
+ started=false;gameOver=false;mode=null;roomCode="";onlineReady=false;
+ overlay.classList.remove("hidden");showMainMenu();status.textContent="Press Play Now to start";
+}
+
+function resetMatch(){blueScore=0;redScore=0;timeLeft=120;timerAcc=0;blue.offset=red.offset=0;blue.kick=red.kick=0;resetBall(Math.random()>.5?1:-1);updateHUD()}
+function resetBall(d=1){ball.x=W/2;ball.y=H/2;ball.vx=(5+Math.random()*2)*d;ball.vy=Math.random()*6-3}
+
+function teamControl(team,up,down,kick,speed=7){
+ if(up)team.offset-=speed;if(down)team.offset+=speed;
+ team.offset=Math.max(-120,Math.min(120,team.offset));
+ team.kick=kick?1:team.kick*.82;
+}
+function controlAI(){
+ const target=Math.max(-120,Math.min(120,ball.y-H/2)),diff=target-red.offset;
+ if(Math.abs(diff)>10)red.offset+=Math.sign(diff)*4.8;
+ red.offset=Math.max(-120,Math.min(120,red.offset));
+ let near=false;
+ for(const rod of red.rods)for(const p of rod.players)
+   if(Math.abs(ball.x-rod.x)<75&&Math.abs(ball.y-(H/2+p+red.offset))<60)near=true;
+ red.kick=near?Math.min(1,red.kick+.3):red.kick*.78;
+}
+
+function controls(){
+ if(mode==="ai"){teamControl(blue,keys.w,keys.s,keys.f);controlAI();return}
+ if(mode==="pvp"){teamControl(blue,keys.w,keys.s,keys.f);teamControl(red,keys.arrowup,keys.arrowdown,keys.enter);return}
+ if(mode==="online"){
+   if(myPlayer===1){
+     teamControl(blue,keys.w,keys.s,keys.f);
+     teamControl(red,remote.up,remote.down,remote.kick);
+     socket.emit("player-input",{up:!!keys.w,down:!!keys.s,kick:!!keys.f});
+   }else{
+     teamControl(red,keys.arrowup,keys.arrowdown,keys.enter);
+     teamControl(blue,remote.up,remote.down,remote.kick);
+     socket.emit("player-input",{up:!!keys.arrowup,down:!!keys.arrowdown,kick:!!keys.enter});
+   }
+ }
+}
+
+function collide(team,dir){
+ for(const rod of team.rods)for(const p of rod.players){
+  const px=rod.x,py=H/2+p+team.offset,dx=ball.x-px,dy=ball.y-py;
+  if(Math.abs(dx)<26&&Math.abs(dy)<43){
+   const power=6+team.kick*10;ball.vx=dir*Math.max(power,Math.abs(ball.vx)+1.2);ball.vy+=dy*.07;
+   ball.x=px+dir*(12+ball.r+2);
+  }
+ }
+}
+function updateBall(){
+ ball.x+=ball.vx;ball.y+=ball.vy;ball.vx*=.998;ball.vy*=.998;
+ const top=field.y+ball.r,bottom=field.y+field.h-ball.r;
+ if(ball.y<top){ball.y=top;ball.vy*=-1}if(ball.y>bottom){ball.y=bottom;ball.vy*=-1}
+ const gt=H/2-field.goalH/2,gb=H/2+field.goalH/2,goal=ball.y>gt&&ball.y<gb;
+ if(!goal){
+  if(ball.x<field.x+ball.r){ball.x=field.x+ball.r;ball.vx*=-1}
+  if(ball.x>field.x+field.w-ball.r){ball.x=field.x+field.w-ball.r;ball.vx*=-1}
+ }
+ if(ball.x<5&&goal){redScore++;resetBall(1);updateHUD()}
+ if(ball.x>W-5&&goal){blueScore++;resetBall(-1);updateHUD()}
+ ball.vx=Math.max(-16,Math.min(16,ball.vx));ball.vy=Math.max(-16,Math.min(16,ball.vy));
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);ctx.fillStyle="#11834e";ctx.fillRect(field.x,field.y,field.w,field.h);
+ for(let i=0;i<10;i++)if(i%2===0){ctx.fillStyle="#ffffff09";ctx.fillRect(field.x+i*field.w/10,field.y,field.w/10,field.h)}
+ ctx.strokeStyle="#fff";ctx.lineWidth=4;ctx.strokeRect(field.x,field.y,field.w,field.h);
+ ctx.beginPath();ctx.moveTo(W/2,field.y);ctx.lineTo(W/2,field.y+field.h);ctx.stroke();
+ ctx.beginPath();ctx.arc(W/2,H/2,95,0,Math.PI*2);ctx.stroke();
+ const gy=H/2-field.goalH/2;ctx.strokeRect(10,gy,70,field.goalH);ctx.strokeRect(W-80,gy,70,field.goalH);
+ ctx.strokeRect(field.x,H/2-150,150,300);ctx.strokeRect(field.x+field.w-150,H/2-150,150,300);
+ drawTeam(blue,"#2f81f7");drawTeam(red,"#ff4d4f");
+ ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fillStyle="#fff";ctx.fill();ctx.strokeStyle="#111";ctx.lineWidth=2;ctx.stroke();
+ if(gameOver){ctx.fillStyle="#000b";ctx.fillRect(0,0,W,H);ctx.textAlign="center";ctx.fillStyle="#fff";ctx.font="bold 58px Arial";ctx.fillText(blueScore===redScore?"DRAW":blueScore>redScore?"BLUE WINS":"RED WINS",W/2,H/2)}
+}
+function drawTeam(team,color){
+ for(const rod of team.rods){
+  ctx.strokeStyle="#c5c5c5";ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(rod.x,field.y-10);ctx.lineTo(rod.x,field.y+field.h+10);ctx.stroke();
+  for(const p of rod.players){const py=H/2+p+team.offset;ctx.fillStyle=color;ctx.fillRect(rod.x-12,py-28,24,56);ctx.beginPath();ctx.arc(rod.x,py-38,10,0,Math.PI*2);ctx.fill()}
+ }
+}
+function loop(now){
+ const dt=now-lastTime;lastTime=now;
+ if(started&&!gameOver){
+   // Player 1 is authoritative for online ball/time simulation.
+   const simulate=mode!=="online"||myPlayer===1;
+   controls();
+   if(simulate){
+     timerAcc+=dt;if(timerAcc>=1000){timerAcc-=1000;timeLeft--;if(timeLeft<=0){timeLeft=0;gameOver=true}updateHUD()}
+     updateBall();collide(blue,1);collide(red,-1);
+     if(mode==="online"){
+       networkSyncAcc+=dt;
+       if(networkSyncAcc>45){networkSyncAcc=0;socket.emit("ball-state",{ball:{...ball},blueScore,redScore,timeLeft})}
+     }
+   }
+ }
+ draw();requestAnimationFrame(loop);
+}
+updateHUD();resetBall();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
