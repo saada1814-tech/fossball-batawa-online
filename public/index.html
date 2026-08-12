@@ -18,6 +18,30 @@ button{cursor:pointer}.primary{background:#2f81f7;color:white}.ai{background:#22
 input{text-transform:uppercase;text-align:center;letter-spacing:4px;width:100%}.hidden{display:none!important}
 .status{margin-top:10px;font-weight:700}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.box{padding:10px;background:#ffffff0d;border:1px solid #ffffff1f;border-radius:12px}
 .roomcode{font-size:28px;letter-spacing:5px;font-weight:800;color:#5ee28c}
+
+.mobile-controls{
+  display:none;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:10px;
+  margin-top:12px;
+  user-select:none;
+  -webkit-user-select:none;
+  touch-action:none;
+}
+.touch-btn{
+  min-height:64px;
+  border-radius:16px;
+  font-size:22px;
+  font-weight:900;
+  background:#ffffff18;
+  color:#fff;
+  border:1px solid #ffffff2b;
+  touch-action:none;
+}
+.touch-btn.active{transform:scale(.97);background:#ffffff30}
+.touch-kick{background:#22c55e;color:#06100c}
+@media (pointer:coarse), (max-width:900px){.mobile-controls{display:grid}}
+
 @media(max-width:700px){.controls{grid-template-columns:1fr}.menu h2{font-size:26px}}
 </style>
 </head>
@@ -81,6 +105,13 @@ input{text-transform:uppercase;text-align:center;letter-spacing:4px;width:100%}.
   <div class="box"><b>Blue</b><br>W / S = Move · F = Kick</div>
   <div class="box" id="redControl"><b>Red</b><br>↑ / ↓ = Move · Enter = Kick</div>
 </div>
+
+<div class="mobile-controls" id="mobileControls">
+  <button class="touch-btn" id="touchUp">▲ UP</button>
+  <button class="touch-btn" id="touchDown">▼ DOWN</button>
+  <button class="touch-btn touch-kick" id="touchKick">KICK</button>
+</div>
+
 <button class="dark" style="margin-top:10px" onclick="returnMenu()">MAIN MENU</button>
 </div>
 
@@ -95,10 +126,26 @@ const red={offset:0,kick:0,rods:[{x:1030,players:[-140,0,140]},{x:780,players:[-
 let keys={},blueScore=0,redScore=0,timeLeft=120,lastTime=performance.now(),timerAcc=0;
 let mode=null,started=false,gameOver=false,myPlayer=1,roomCode="",onlineReady=false;
 let remote={up:false,down:false,kick:false};
+let touch={up:false,down:false,kick:false};
 let networkSyncAcc=0;
 
 addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=true;if(e.key==="Enter")keys.enter=true;if(["ArrowUp","ArrowDown"].includes(e.key))e.preventDefault()});
 addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=false;if(e.key==="Enter")keys.enter=false});
+
+function bindTouchButton(id,key){
+  const el=document.getElementById(id);
+  if(!el)return;
+  const on=e=>{e.preventDefault();touch[key]=true;el.classList.add("active")};
+  const off=e=>{e.preventDefault();touch[key]=false;el.classList.remove("active")};
+  el.addEventListener("pointerdown",on);
+  el.addEventListener("pointerup",off);
+  el.addEventListener("pointercancel",off);
+  el.addEventListener("pointerleave",off);
+}
+bindTouchButton("touchUp","up");
+bindTouchButton("touchDown","down");
+bindTouchButton("touchKick","kick");
+
 
 function hideMenus(){document.querySelectorAll(".menu").forEach(x=>x.classList.add("hidden"))}
 function show(id){hideMenus();document.getElementById(id).classList.remove("hidden")}
@@ -185,17 +232,32 @@ function controlAI(){
 }
 
 function controls(){
- if(mode==="ai"){teamControl(blue,keys.w,keys.s,keys.f);controlAI();return}
- if(mode==="pvp"){teamControl(blue,keys.w,keys.s,keys.f);teamControl(red,keys.arrowup,keys.arrowdown,keys.enter);return}
+ const p1Up=!!keys.w||touch.up;
+ const p1Down=!!keys.s||touch.down;
+ const p1Kick=!!keys.f||touch.kick;
+ const p2Up=!!keys.arrowup||touch.up;
+ const p2Down=!!keys.arrowdown||touch.down;
+ const p2Kick=!!keys.enter||touch.kick;
+
+ if(mode==="ai"){
+   teamControl(blue,p1Up,p1Down,p1Kick);
+   controlAI();
+   return;
+ }
+ if(mode==="pvp"){
+   teamControl(blue,p1Up,p1Down,p1Kick);
+   teamControl(red,keys.arrowup,keys.arrowdown,keys.enter);
+   return;
+ }
  if(mode==="online"){
    if(myPlayer===1){
-     teamControl(blue,keys.w,keys.s,keys.f);
+     teamControl(blue,p1Up,p1Down,p1Kick);
      teamControl(red,remote.up,remote.down,remote.kick);
-     socket.emit("player-input",{up:!!keys.w,down:!!keys.s,kick:!!keys.f});
+     socket.emit("player-input",{up:p1Up,down:p1Down,kick:p1Kick});
    }else{
-     teamControl(red,keys.arrowup,keys.arrowdown,keys.enter);
+     teamControl(red,p2Up,p2Down,p2Kick);
      teamControl(blue,remote.up,remote.down,remote.kick);
-     socket.emit("player-input",{up:!!keys.arrowup,down:!!keys.arrowdown,kick:!!keys.enter});
+     socket.emit("player-input",{up:p2Up,down:p2Down,kick:p2Kick});
    }
  }
 }
