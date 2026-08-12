@@ -19,29 +19,6 @@ input{text-transform:uppercase;text-align:center;letter-spacing:4px;width:100%}.
 .status{margin-top:10px;font-weight:700}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.box{padding:10px;background:#ffffff0d;border:1px solid #ffffff1f;border-radius:12px}
 .roomcode{font-size:28px;letter-spacing:5px;font-weight:800;color:#5ee28c}
 
-.mobile-controls{
-  display:none;
-  grid-template-columns:minmax(160px,320px);justify-content:center;
-  gap:10px;
-  margin-top:12px;
-  user-select:none;
-  -webkit-user-select:none;
-  touch-action:none;
-}
-.touch-btn{
-  min-height:64px;
-  border-radius:16px;
-  font-size:22px;
-  font-weight:900;
-  background:#ffffff18;
-  color:#fff;
-  border:1px solid #ffffff2b;
-  touch-action:none;
-}
-.touch-btn.active{transform:scale(.97);background:#ffffff30}
-.touch-kick{background:#22c55e;color:#06100c}
-@media (pointer:coarse), (max-width:900px){.mobile-controls{display:grid}}
-
 @media(max-width:700px){.controls{grid-template-columns:1fr}.menu h2{font-size:26px}}
 </style>
 </head>
@@ -105,11 +82,7 @@ input{text-transform:uppercase;text-align:center;letter-spacing:4px;width:100%}.
   <div class="box"><b>Blue</b><br>W / S = Move · F = Kick</div>
   <div class="box" id="redControl"><b>Red</b><br>↑ / ↓ = Move · Enter = Kick</div>
 </div>
-
-<div class="mobile-controls" id="mobileControls">
-  <button class="touch-btn touch-kick" id="touchKick">KICK</button>
-</div>
-
+<div id="mobileHint" style="margin-top:10px;font-weight:700;opacity:.85">Mobile: drag your finger up/down on the table to move rods. Tap the table to kick.</div>
 <button class="dark" style="margin-top:10px" onclick="returnMenu()">MAIN MENU</button>
 </div>
 
@@ -124,24 +97,15 @@ const red={offset:0,kick:0,rods:[{x:1030,players:[-140,0,140]},{x:780,players:[-
 let keys={},blueScore=0,redScore=0,timeLeft=120,lastTime=performance.now(),timerAcc=0;
 let mode=null,started=false,gameOver=false,myPlayer=1,roomCode="",onlineReady=false;
 let remote={up:false,down:false,kick:false};
-let touch={up:false,down:false,kick:false};
+let touchKick=false;
 let dragActive=false;
+let dragStartY=0;
+let dragStartX=0;
+let dragMoved=false;
 let networkSyncAcc=0;
 
 addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=true;if(e.key==="Enter")keys.enter=true;if(["ArrowUp","ArrowDown"].includes(e.key))e.preventDefault()});
 addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=false;if(e.key==="Enter")keys.enter=false});
-
-function bindTouchButton(id,key){
-  const el=document.getElementById(id);
-  if(!el)return;
-  const on=e=>{e.preventDefault();touch[key]=true;el.classList.add("active")};
-  const off=e=>{e.preventDefault();touch[key]=false;el.classList.remove("active")};
-  el.addEventListener("pointerdown",on);
-  el.addEventListener("pointerup",off);
-  el.addEventListener("pointercancel",off);
-  el.addEventListener("pointerleave",off);
-}
-bindTouchButton("touchKick","kick");
 
 function setDragPosition(clientY){
   const rect=canvas.getBoundingClientRect();
@@ -159,7 +123,12 @@ function setDragPosition(clientY){
 canvas.addEventListener("pointerdown",e=>{
   if(e.pointerType==="mouse") return;
   e.preventDefault();
+
   dragActive=true;
+  dragMoved=false;
+  dragStartY=e.clientY;
+  dragStartX=e.clientX;
+
   canvas.setPointerCapture?.(e.pointerId);
   setDragPosition(e.clientY);
 });
@@ -167,15 +136,37 @@ canvas.addEventListener("pointerdown",e=>{
 canvas.addEventListener("pointermove",e=>{
   if(!dragActive || e.pointerType==="mouse") return;
   e.preventDefault();
+
+  const dx=e.clientX-dragStartX;
+  const dy=e.clientY-dragStartY;
+
+  if(Math.hypot(dx,dy)>12) dragMoved=true;
   setDragPosition(e.clientY);
 });
 
 function endDrag(e){
+  if(!dragActive) return;
+
+  // A quick tap without meaningful movement becomes a kick.
+  if(!dragMoved){
+    touchKick=true;
+    setTimeout(()=>{touchKick=false},140);
+  }
+
   dragActive=false;
-  try{canvas.releasePointerCapture?.(e.pointerId)}catch(_){}
+
+  try{
+    canvas.releasePointerCapture?.(e.pointerId);
+  }catch(_){}
 }
+
 canvas.addEventListener("pointerup",endDrag);
-canvas.addEventListener("pointercancel",endDrag);
+canvas.addEventListener("pointercancel",e=>{
+  dragActive=false;
+  try{
+    canvas.releasePointerCapture?.(e.pointerId);
+  }catch(_){}
+});
 
 
 
@@ -266,10 +257,10 @@ function controlAI(){
 function controls(){
  const p1Up=!!keys.w;
  const p1Down=!!keys.s;
- const p1Kick=!!keys.f||touch.kick;
+ const p1Kick=!!keys.f||touchKick;
  const p2Up=!!keys.arrowup;
  const p2Down=!!keys.arrowdown;
- const p2Kick=!!keys.enter||touch.kick;
+ const p2Kick=!!keys.enter||touchKick;
 
  if(mode==="ai"){
    teamControl(blue,p1Up,p1Down,p1Kick);
