@@ -9,7 +9,7 @@
 body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#153b2a,#06100c 70%);color:#fff;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center}
 .wrap{width:min(1180px,96vw);text-align:center}
 h1{margin:0 0 10px}.hud{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin-bottom:10px;border:1px solid #ffffff26;border-radius:14px;background:#ffffff0d}
-.game-box{position:relative}canvas{width:100%;aspect-ratio:16/9;display:block;background:#11834e;border:8px solid #4e2b17;border-radius:18px}
+.game-box{position:relative}canvas{width:100%;aspect-ratio:16/9;display:block;background:#11834e;touch-action:none;border:8px solid #4e2b17;border-radius:18px}
 .overlay{position:absolute;inset:8px;display:flex;align-items:center;justify-content:center;background:#030a07e8;border-radius:10px;z-index:4}
 .menu{width:min(540px,92%);padding:28px;border:1px solid #ffffff24;background:#ffffff12;border-radius:20px}
 .menu h2{font-size:34px;margin:0 0 10px}.menu p{opacity:.8}.buttons{display:grid;gap:10px;margin-top:18px}
@@ -21,7 +21,7 @@ input{text-transform:uppercase;text-align:center;letter-spacing:4px;width:100%}.
 
 .mobile-controls{
   display:none;
-  grid-template-columns:1fr 1fr 1fr;
+  grid-template-columns:minmax(160px,320px);justify-content:center;
   gap:10px;
   margin-top:12px;
   user-select:none;
@@ -107,8 +107,6 @@ input{text-transform:uppercase;text-align:center;letter-spacing:4px;width:100%}.
 </div>
 
 <div class="mobile-controls" id="mobileControls">
-  <button class="touch-btn" id="touchUp">▲ UP</button>
-  <button class="touch-btn" id="touchDown">▼ DOWN</button>
   <button class="touch-btn touch-kick" id="touchKick">KICK</button>
 </div>
 
@@ -127,6 +125,7 @@ let keys={},blueScore=0,redScore=0,timeLeft=120,lastTime=performance.now(),timer
 let mode=null,started=false,gameOver=false,myPlayer=1,roomCode="",onlineReady=false;
 let remote={up:false,down:false,kick:false};
 let touch={up:false,down:false,kick:false};
+let dragActive=false;
 let networkSyncAcc=0;
 
 addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=true;if(e.key==="Enter")keys.enter=true;if(["ArrowUp","ArrowDown"].includes(e.key))e.preventDefault()});
@@ -142,9 +141,42 @@ function bindTouchButton(id,key){
   el.addEventListener("pointercancel",off);
   el.addEventListener("pointerleave",off);
 }
-bindTouchButton("touchUp","up");
-bindTouchButton("touchDown","down");
 bindTouchButton("touchKick","kick");
+
+function setDragPosition(clientY){
+  const rect=canvas.getBoundingClientRect();
+  const scaleY=H/rect.height;
+  const y=(clientY-rect.top)*scaleY;
+  const target=Math.max(-120,Math.min(120,y-H/2));
+
+  if(mode==="online" && myPlayer===2){
+    red.offset=target;
+  }else{
+    blue.offset=target;
+  }
+}
+
+canvas.addEventListener("pointerdown",e=>{
+  if(e.pointerType==="mouse") return;
+  e.preventDefault();
+  dragActive=true;
+  canvas.setPointerCapture?.(e.pointerId);
+  setDragPosition(e.clientY);
+});
+
+canvas.addEventListener("pointermove",e=>{
+  if(!dragActive || e.pointerType==="mouse") return;
+  e.preventDefault();
+  setDragPosition(e.clientY);
+});
+
+function endDrag(e){
+  dragActive=false;
+  try{canvas.releasePointerCapture?.(e.pointerId)}catch(_){}
+}
+canvas.addEventListener("pointerup",endDrag);
+canvas.addEventListener("pointercancel",endDrag);
+
 
 
 function hideMenus(){document.querySelectorAll(".menu").forEach(x=>x.classList.add("hidden"))}
@@ -195,7 +227,7 @@ function startOnlineMatch(){
 
 socket.on("match-start",()=>startOnlineMatch());
 socket.on("room-state",s=>{if(s.code===roomCode&&s.ready)document.getElementById("waitingText").textContent="Opponent connected!"});
-socket.on("opponent-input",data=>{remote={up:!!data.up,down:!!data.down,kick:!!data.kick}});
+socket.on("opponent-input",data=>{remote={up:!!data.up,down:!!data.down,kick:!!data.kick,offset:Number.isFinite(data.offset)?data.offset:null}});
 socket.on("ball-state",s=>{
  if(mode==="online"&&myPlayer===2){
    Object.assign(ball,s.ball);blueScore=s.blueScore;redScore=s.redScore;timeLeft=s.timeLeft;updateHUD();
@@ -232,11 +264,11 @@ function controlAI(){
 }
 
 function controls(){
- const p1Up=!!keys.w||touch.up;
- const p1Down=!!keys.s||touch.down;
+ const p1Up=!!keys.w;
+ const p1Down=!!keys.s;
  const p1Kick=!!keys.f||touch.kick;
- const p2Up=!!keys.arrowup||touch.up;
- const p2Down=!!keys.arrowdown||touch.down;
+ const p2Up=!!keys.arrowup;
+ const p2Down=!!keys.arrowdown;
  const p2Kick=!!keys.enter||touch.kick;
 
  if(mode==="ai"){
@@ -253,11 +285,13 @@ function controls(){
    if(myPlayer===1){
      teamControl(blue,p1Up,p1Down,p1Kick);
      teamControl(red,remote.up,remote.down,remote.kick);
-     socket.emit("player-input",{up:p1Up,down:p1Down,kick:p1Kick});
+     if(remote.offset!==null&&remote.offset!==undefined) red.offset=remote.offset;
+     socket.emit("player-input",{up:p1Up,down:p1Down,kick:p1Kick,offset:blue.offset});
    }else{
      teamControl(red,p2Up,p2Down,p2Kick);
      teamControl(blue,remote.up,remote.down,remote.kick);
-     socket.emit("player-input",{up:p2Up,down:p2Down,kick:p2Kick});
+     if(remote.offset!==null&&remote.offset!==undefined) blue.offset=remote.offset;
+     socket.emit("player-input",{up:p2Up,down:p2Down,kick:p2Kick,offset:red.offset});
    }
  }
 }
