@@ -5,10 +5,16 @@
   "description": "Online multiplayer Foosball prototype with Socket.IO and AI fallback",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "cap:sync": "npx cap sync android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
     "express": "^5.1.0",
     "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0"
   }
 }
