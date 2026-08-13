@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK & AAB
 
 on:
   workflow_dispatch:
@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Add Android
+      - name: Add Android platform
         run: npx cap add android
 
       - name: Sync Capacitor
@@ -37,23 +37,24 @@ jobs:
       - name: Give Gradle permission
         run: chmod +x android/gradlew
 
-      - name: Build APK
+      - name: Build Debug APK
         run: |
           cd android
           ./gradlew assembleDebug
-                - name: Build Android App Bundle
+
+      - name: Build Release AAB
         run: |
           cd android
           ./gradlew bundleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: foosball-clash-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
           name: foosball-clash-aab
           path: android/app/build/outputs/bundle/release/app-release.aab
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: foosball-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
