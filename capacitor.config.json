@@ -1,1 +1,8 @@
-
+{
+  "appId": "com.saada.foosball",
+  "appName": "Foosball Online",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https"
+  }
+}
