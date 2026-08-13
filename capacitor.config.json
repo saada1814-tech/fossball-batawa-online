@@ -1,6 +1,6 @@
 {
   "appId": "com.saada.foosball",
-  "appName": "Foosball Online",
+  "appName": "Foosball Clash: Online",
   "webDir": "public",
   "server": {
     "androidScheme": "https"
